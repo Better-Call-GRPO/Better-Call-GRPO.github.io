@@ -1383,7 +1383,7 @@ BCG.initCharts = function () {
     const x = d3.scaleLinear().domain([-6, 6]).range([0, iw]);
     const y = d3.scaleLinear().domain([0.3, 1.0]).range([ih, 0]);
     g.append('rect').attr('x', x(0)).attr('y', 0).attr('width', x(6) - x(0)).attr('height', ih)
-      .attr('fill', '#FFFFFF').attr('opacity', 0.03);
+      .attr('fill', '#141413').attr('opacity', 0.04);
     hGrid(g, y, 0, iw, [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]);
     styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
       .call(d3.axisBottom(x).tickValues([-6, -3, 0, 3, 6]).tickFormat(d => d === 0 ? 'T_last' : (d > 0 ? '+' + d : d))));
@@ -1557,7 +1557,7 @@ BCG.initCharts = function () {
       row.transition().delay(400 + k * 450).duration(500).attr('opacity', 1);
     });
     g.append('text').attr('x', x(7)).attr('y', y(0.755) + 24).attr('text-anchor', 'middle')
-      .attr('fill', C.red).attr('font-size', 11.5).attr('opacity', 0)
+      .attr('fill', C.blue).attr('font-size', 11.5).attr('opacity', 0)
       .text('SFT rewrites early–middle layers')
       .transition().delay(1400).duration(500).attr('opacity', 0.9);
   });
