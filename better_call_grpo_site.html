@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When Synthetic Speech Is All You Have: Better Call GRPO</title>
+<meta name="description" content="GRPO extracts far more from synthetic speech than SFT for LLM-based ASR domain adaptation: −45% relative WER on a privacy-constrained banking task. Kumar*, Labrak*, et al., arXiv:2607.08409.">
+<meta property="og:title" content="Better Call GRPO">
+<meta property="og:description" content="When synthetic speech is all you have, reinforcement learning beats supervised fine-tuning: −45% relative WER.">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js" crossorigin="anonymous"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
+
+<style>
+:root{
+  --bg:#FAF9F5; --bg2:#F1EFE8; --panel:#FFFFFF; --fg:#141413; --muted:#6B6B64;
+  --rule:#E4E1D7; --gold:#C15F3C; --goldfill:#D97757; --blue:#4A7BA6; --red:#B3392F;
+  --green:#3E7D5C; --purple:#7E6BA8; --maxw:1080px;
+  --serif:"Tiempos Text",Georgia,"Times New Roman",serif;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:"Inter","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.6; overflow-x:hidden;
+}
+::selection{background:rgba(217,119,87,.25)}
+a{color:var(--gold); text-decoration:none}
+a:hover{text-decoration:underline}
+h1,h2,.brand,.verdict .big{font-family:var(--serif)}
+
+/* ---------- progress + nav ---------- */
+#progress{position:fixed; top:0; left:0; height:3px; width:0%;
+  background:linear-gradient(90deg,var(--goldfill),var(--blue)); z-index:200}
+nav{
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; gap:18px; padding:12px 26px;
+  background:rgba(250,249,245,.88); backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);
+  transform:translateY(-110%); transition:transform .4s ease;
+}
+nav.shown{transform:translateY(0)}
+nav .brand{font-weight:700; color:var(--fg); letter-spacing:.2px; white-space:nowrap; font-size:17px}
+nav .links{display:flex; gap:16px; margin-left:auto; flex-wrap:wrap}
+nav .links a{color:var(--muted); font-size:14px; font-weight:600}
+nav .links a:hover,nav .links a.active{color:var(--fg); text-decoration:none}
+nav .links a.active{color:var(--gold)}
+
+/* ---------- hero ---------- */
+header#hero{position:relative; min-height:100vh; display:flex; align-items:center;
+  justify-content:center; text-align:center; overflow:hidden}
+#wave3d{position:absolute; inset:0; width:100%; height:100%; display:block}
+#hero .content{position:relative; z-index:2; padding:90px 20px 60px; max-width:1000px}
+#hero .kicker{color:var(--gold); letter-spacing:2.5px; font-size:12.5px; font-weight:700;
+  text-transform:uppercase; margin-bottom:20px}
+#hero h1{font-size:clamp(26px,4vw,42px); font-weight:600; line-height:1.28; letter-spacing:0}
+#hero h1 .gold{display:block; color:var(--gold); font-size:clamp(42px,6.6vw,76px);
+  margin-top:10px; letter-spacing:-.5px; font-weight:700}
+#hero .authors{margin-top:28px; font-size:15.5px; color:var(--fg)}
+#hero .authors b{font-weight:600}
+#hero .authors sup{color:var(--muted); font-size:11px}
+#hero .affil{margin-top:8px; color:var(--muted); font-size:13.5px}
+#hero .eq{margin-top:4px; color:var(--muted); font-size:12px}
+#hero .btns{margin-top:32px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:10px 20px; border-radius:999px;
+  background:var(--fg); color:#FFFFFF; font-weight:600; font-size:14.5px;
+  border:1.5px solid var(--fg); transition:transform .18s ease, box-shadow .18s ease, background .18s ease}
+.btn:hover{transform:translateY(-2px); box-shadow:0 8px 24px rgba(20,20,19,.18);
+  text-decoration:none; background:#2B2B28}
+.btn.ghost{background:transparent; color:var(--fg); border-color:#CFCBBF}
+.btn.ghost:hover{border-color:var(--gold); color:var(--gold); background:transparent}
+.btn.disabled{background:transparent; color:var(--muted); border-color:var(--rule);
+  cursor:default; pointer-events:none}
+#hero .scrollhint{position:absolute; bottom:26px; left:50%; transform:translateX(-50%);
+  color:var(--muted); font-size:12px; letter-spacing:1.5px; z-index:2; animation:bob 2.2s infinite ease-in-out}
+@keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,8px)}}
+
+/* ---------- layout ---------- */
+section{padding:90px 22px}
+.wrap{max-width:var(--maxw); margin:0 auto}
+.kick{color:var(--gold); letter-spacing:2px; font-size:12px; font-weight:800; text-transform:uppercase}
+h2{font-size:clamp(26px,3.4vw,36px); font-weight:600; margin:10px 0 16px; letter-spacing:0}
+.lead{color:#4A4A45; font-size:16.5px; max-width:860px}
+.lead b, .lead strong{color:var(--fg)}
+.hr{height:1px; background:var(--rule); border:0; margin:0 auto; max-width:var(--maxw)}
+
+/* reveal-on-scroll */
+.reveal{opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s ease}
+.reveal.visible{opacity:1; transform:none}
+.reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}
+.reveal.d3{transition-delay:.24s}.reveal.d4{transition-delay:.32s}
+
+/* ---------- stat cards ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:34px}
+.stat{background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:22px 20px;
+  box-shadow:0 1px 3px rgba(20,20,19,.04);
+  transition:border-color .25s ease, transform .25s ease, box-shadow .25s ease}
+.stat:hover{border-color:var(--goldfill); transform:translateY(-3px); box-shadow:0 8px 22px rgba(20,20,19,.07)}
+.stat .num{font-size:38px; font-weight:700; color:var(--gold); letter-spacing:-1px;
+  font-variant-numeric:tabular-nums; font-family:var(--serif)}
+.stat .num.green{color:var(--green)} .stat .num.blue{color:var(--blue)}
+.stat .lab{color:var(--muted); font-size:13.5px; margin-top:6px}
+
+/* ---------- cards / panels ---------- */
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:30px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:26px;
+  box-shadow:0 1px 3px rgba(20,20,19,.04)}
+.card h3{font-size:19px; margin-bottom:10px}
+.card.sft h3{color:var(--blue)} .card.grpo h3{color:var(--gold)}
+.card p{color:var(--muted); font-size:14.5px}
+.card .formula{margin:14px 0; padding:14px 10px; background:var(--bg); border-radius:10px;
+  border:1px solid var(--rule); overflow-x:auto; text-align:center; font-size:15px}
+.tagline{display:inline-block; margin-top:12px; padding:5px 12px; border-radius:999px;
+  font-size:12.5px; font-weight:700; letter-spacing:.3px}
+.tagline.bad{background:rgba(179,57,47,.07); color:var(--red); border:1px solid rgba(179,57,47,.3)}
+.tagline.good{background:rgba(62,125,92,.08); color:var(--green); border:1px solid rgba(62,125,92,.3)}
+
+/* chain diagram (SFT failure) */
+.chain{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:16px}
+.chain .step{background:rgba(179,57,47,.05); border:1px solid rgba(179,57,47,.35); color:var(--red);
+  padding:6px 12px; border-radius:10px; font-size:12.5px; font-weight:600}
+.chain .arr{color:var(--muted)}
+
+/* ---------- figure blocks ---------- */
+figure.fig{background:var(--panel); border:1px solid var(--rule); border-radius:16px;
+  padding:26px 26px 18px; margin-top:34px; box-shadow:0 1px 3px rgba(20,20,19,.04)}
+figure.fig figcaption{color:var(--muted); font-size:13.5px; margin-top:12px; line-height:1.55}
+figure.fig figcaption b{color:var(--fg)}
+.fig-head{display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:8px}
+.fig-head h3{font-size:18.5px}
+.fig-head .sub{color:var(--muted); font-size:13px}
+.chart{width:100%}
+.chart svg{width:100%; height:auto; display:block}
+.cdn-warn{color:var(--red); background:rgba(179,57,47,.05); border:1px dashed rgba(179,57,47,.4);
+  padding:14px; border-radius:10px; font-size:14px}
+
+/* toggles */
+.toggle{display:inline-flex; background:var(--bg2); border:1px solid var(--rule); border-radius:999px; padding:4px; gap:4px}
+.toggle button{background:transparent; color:var(--muted); border:0; padding:6px 16px; font-size:13px;
+  font-weight:700; border-radius:999px; cursor:pointer; font-family:inherit; transition:all .2s ease}
+.toggle button.on{background:var(--fg); color:#FFFFFF}
+.toggle button:not(.on):hover{color:var(--fg)}
+
+/* tooltip */
+#tooltip{position:fixed; pointer-events:none; z-index:300; background:#FFFFFF; color:var(--fg);
+  border:1px solid var(--rule); border-radius:10px; padding:10px 12px; font-size:12.5px;
+  line-height:1.5; opacity:0; transition:opacity .15s ease; max-width:260px;
+  box-shadow:0 10px 30px rgba(20,20,19,.14)}
+#tooltip b{color:var(--gold)}
+
+/* ---------- playground ---------- */
+#playground .ref{font-size:15px; color:var(--muted); margin-bottom:4px}
+#playground .ref code{color:var(--green); background:var(--bg); padding:3px 10px; border-radius:8px;
+  font-size:14px; border:1px solid var(--rule)}
+#gp-cards{display:flex; flex-direction:column; gap:12px; margin-top:18px; min-height:300px}
+.gp-card{display:flex; align-items:center; gap:14px; background:var(--bg); border:1px solid var(--rule);
+  border-radius:12px; padding:12px 16px; opacity:0; transform:translateX(-18px);
+  transition:opacity .5s ease, transform .5s ease, border-color .3s ease}
+.gp-card.in{opacity:1; transform:none}
+.gp-card.win{border-color:rgba(62,125,92,.55)}
+.gp-card.lose{border-color:rgba(179,57,47,.5)}
+.gp-card .txt{flex:1; font-size:14.5px; min-width:0}
+.gp-card .txt .tag{display:block; color:var(--red); font-size:11px; font-weight:700; margin-top:2px}
+.gp-card .r{font-weight:800; font-size:14px; width:84px; text-align:right; font-variant-numeric:tabular-nums}
+.gp-card .adv{width:120px; text-align:right; font-weight:800; font-size:14px; font-variant-numeric:tabular-nums;
+  opacity:0; transition:opacity .5s ease .25s}
+.gp-card.in .adv{opacity:1}
+.gp-card .adv.up{color:var(--green)} .gp-card .adv.dn{color:var(--red)} .gp-card .adv.md{color:var(--muted)}
+#gp-note{margin-top:14px; color:var(--muted); font-size:13.5px; min-height:22px}
+#gp-note b{color:var(--fg)}
+.gp-bar{margin-top:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+
+/* ---------- takeaways ---------- */
+.takes{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin-top:30px}
+.take{background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:24px;
+  box-shadow:0 1px 3px rgba(20,20,19,.04);
+  transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease}
+.take:hover{transform:translateY(-4px); border-color:var(--green); box-shadow:0 8px 22px rgba(20,20,19,.07)}
+.take .check{width:34px; height:34px; border-radius:50%; background:rgba(62,125,92,.1);
+  color:var(--green); display:flex; align-items:center; justify-content:center; font-weight:800; margin-bottom:12px}
+.take h3{font-size:16px; margin-bottom:6px}
+.take p{color:var(--muted); font-size:13.5px}
+.take p b{color:var(--fg)}
+
+/* ---------- bibtex ---------- */
+#bibtex pre{background:#F5F3EC; border:1px solid var(--rule); border-radius:14px; padding:22px;
+  font-size:13px; overflow-x:auto; color:#3D3D38; line-height:1.6;
+  font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+#copybib{margin-top:14px}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--rule); padding:46px 22px 60px; color:var(--muted); font-size:13.5px}
+footer .wrap{display:flex; flex-direction:column; gap:10px}
+footer .end{color:var(--gold); font-weight:700; font-size:16px; font-family:var(--serif)}
+
+/* verdict banner */
+.verdict{margin-top:34px; border:1.5px solid var(--goldfill); background:#FBF3EE;
+  border-radius:16px; padding:26px; text-align:center}
+.verdict .big{color:var(--gold); font-weight:700; font-size:clamp(18px,2.5vw,23px)}
+.verdict .sm{color:var(--muted); font-size:14px; margin-top:6px}
+
+/* pipeline svgs */
+.pipe{margin-top:30px}
+.pipe svg{width:100%; height:auto}
+.pipe .blk{fill:#FFFFFF; stroke-width:1.8; rx:12}
+.pipe text{font-family:inherit}
+.replaybtn{background:transparent; border:1px solid #CFCBBF; color:var(--muted); font-family:inherit;
+  padding:6px 16px; font-size:13px; font-weight:700; border-radius:999px; cursor:pointer; transition:all .2s}
+.replaybtn:hover{border-color:var(--gold); color:var(--gold)}
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="tooltip"></div>
+
+<nav id="nav">
+  <span class="brand">☎ Better Call GRPO</span>
+  <div class="links">
+    <a href="#problem">Problem</a>
+    <a href="#method">Method</a>
+    <a href="#results">Results</a>
+    <a href="#analysis">Why it works</a>
+    <a href="#takeaways">Takeaways</a>
+    <a href="#bibtex">BibTeX</a>
+  </div>
+</nav>
+
+<!-- ================================ HERO ================================ -->
+<header id="hero">
+  <canvas id="wave3d"></canvas>
+  <div class="content">
+    <p class="kicker">LLM-based ASR · Synthetic Speech · Reinforcement Learning</p>
+    <h1>When Synthetic Speech Is All You Have:
+      <span class="gold">Better Call GRPO</span>
+    </h1>
+    <p class="authors">
+      <b>Shashi Kumar</b><sup>1,2,*</sup> · <b>Yanis Labrak</b><sup>1,*</sup> ·
+      <b>Hasindri Watawana</b><sup>1,2</sup> · <b>Sergio Burdisso</b><sup>1</sup> ·
+      <b>Esaú Villatoro-Tello</b><sup>1</sup> · <b>Kadri Hacioğlu</b><sup>3</sup> ·
+      <b>Petr Motlicek</b><sup>1,4</sup> · <b>Andreas Stolcke</b><sup>3</sup>
+    </p>
+    <p class="affil"><sup>1</sup> Idiap Research Institute · <sup>2</sup> EPFL ·
+      <sup>3</sup> Uniphore · <sup>4</sup> Brno University of Technology</p>
+    <p class="eq">* equal contribution</p>
+    <div class="btns">
+      <a class="btn" href="https://arxiv.org/abs/2607.08409" target="_blank" rel="noopener">📄 arXiv:2607.08409</a>
+      <a class="btn ghost" href="https://arxiv.org/pdf/2607.08409" target="_blank" rel="noopener">PDF</a>
+      <a class="btn ghost" href="better_call_grpo_presentation.mp4">🎬 Animated talk</a>
+      <a class="btn ghost" href="#bibtex">BibTeX</a>
+      <span class="btn disabled">💻 Code — coming soon</span>
+    </div>
+  </div>
+  <div class="scrollhint">SCROLL ▾</div>
+</header>
+
+<!-- ================================ TLDR ================================ -->
+<section id="tldr">
+  <div class="wrap">
+    <p class="kick reveal">TL;DR</p>
+    <h2 class="reveal">Same synthetic speech. One different objective. 45% of the error gone.</h2>
+    <p class="lead reveal d1">
+      Privacy rules make real banking calls nearly impossible to collect, so ASR systems are adapted on
+      <b>synthetic (TTS) speech</b> — but they are trained with supervised fine-tuning, which overfits the
+      synthetic artifacts. We adapt an LLM-based ASR with <b>GRPO</b>, a critic-free RL method that rewards
+      low-WER hypotheses, and recover most of the synthetic-to-real gap <b>without any additional data</b>.
+    </p>
+    <div class="stats">
+      <div class="stat reveal"><div class="num" id="cnt-rel">−0%</div>
+        <div class="lab">relative WER vs. SFT on synthetic speech (SFT→GRPO, 36.71 → 20.21)</div></div>
+      <div class="stat reveal d1"><div class="num green" id="cnt-wer">36.71</div>
+        <div class="lab">WER after SFT→GRPO on synthetic speech only (SFT alone: 36.71)</div></div>
+      <div class="stat reveal d2"><div class="num blue" id="cnt-ins">24.79</div>
+        <div class="lab">insertion rate after GRPO (SFT: 24.79) — the hallucination tail vanishes</div></div>
+      <div class="stat reveal d3"><div class="num" id="cnt-real">0 h</div>
+        <div class="lab">of real speech capture ≈⅔ of the achievable gain when mixed in</div></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ PROBLEM ================================ -->
+<section id="problem">
+  <div class="wrap">
+    <p class="kick reveal">The problem</p>
+    <h2 class="reveal">Real speech is the one thing you can't have</h2>
+    <p class="lead reveal d1">
+      Customer–agent calls in regulated domains like banking carry <b>biometric and financial data</b>.
+      GDPR and the EU AI Act restrict how they can be stored, shared and reused — so the community
+      substitutes <b>text-to-speech</b> audio generated from transcripts. The catch: synthetic speech stays
+      acoustically mismatched with real recordings, and every prior attempt to close that gap stays inside
+      <b>supervised fine-tuning</b>.
+    </p>
+
+    <div class="pipe reveal d2" id="pipe-problem">
+      <svg viewBox="0 0 980 210" xmlns="http://www.w3.org/2000/svg" aria-label="data pipeline">
+        <defs>
+          <marker id="arrowm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#6B6B64"/>
+          </marker>
+        </defs>
+        <g class="pp-step" data-step="0">
+          <rect class="blk" x="10" y="55" width="150" height="86" rx="12" stroke="#B3392F"/>
+          <text x="85" y="88" fill="#B3392F" font-size="15" font-weight="700" text-anchor="middle">☎ real calls</text>
+          <text x="85" y="110" fill="#6B6B64" font-size="11.5" text-anchor="middle">GDPR · EU AI Act</text>
+          <text x="85" y="126" fill="#6B6B64" font-size="11.5" text-anchor="middle">locked away</text>
+        </g>
+        <line class="pp-arr" data-step="1" x1="168" y1="98" x2="218" y2="98" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <g class="pp-step" data-step="1">
+          <rect class="blk" x="226" y="55" width="150" height="86" rx="12" stroke="#141413"/>
+          <text x="301" y="93" fill="#141413" font-size="14.5" font-weight="700" text-anchor="middle">transcripts</text>
+          <text x="301" y="113" fill="#6B6B64" font-size="11.5" text-anchor="middle">text only · safe</text>
+        </g>
+        <line class="pp-arr" data-step="2" x1="384" y1="98" x2="434" y2="98" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <g class="pp-step" data-step="2">
+          <rect class="blk" x="442" y="55" width="160" height="86" rx="12" stroke="#4A7BA6"/>
+          <text x="522" y="88" fill="#4A7BA6" font-size="14.5" font-weight="700" text-anchor="middle">Qwen3-TTS</text>
+          <text x="522" y="108" fill="#6B6B64" font-size="11.5" text-anchor="middle">persona-matched</text>
+          <text x="522" y="124" fill="#6B6B64" font-size="11.5" text-anchor="middle">voices</text>
+        </g>
+        <line class="pp-arr" data-step="3" x1="610" y1="98" x2="660" y2="98" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <g class="pp-step" data-step="3">
+          <rect class="blk" x="668" y="55" width="150" height="86" rx="12" stroke="#7E6BA8"/>
+          <text x="743" y="93" fill="#7E6BA8" font-size="14.5" font-weight="700" text-anchor="middle">⊛ real RIRs</text>
+          <text x="743" y="113" fill="#6B6B64" font-size="11.5" text-anchor="middle">channel acoustics</text>
+        </g>
+        <line class="pp-arr" data-step="4" x1="826" y1="98" x2="876" y2="98" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <g class="pp-step" data-step="4">
+          <rect class="blk" x="884" y="55" width="88" height="86" rx="12" stroke="#C15F3C"/>
+          <text x="928" y="93" fill="#C15F3C" font-size="14" font-weight="700" text-anchor="middle">54 h</text>
+          <text x="928" y="113" fill="#6B6B64" font-size="11" text-anchor="middle">synthetic</text>
+        </g>
+      </svg>
+    </div>
+
+    <figure class="fig reveal" id="fig-mismatch">
+      <div class="fig-head">
+        <h3>…but the acoustic mismatch survives</h3>
+        <span class="sub">live waveforms — stylized</span>
+      </div>
+      <div class="chart" id="chart-waves"></div>
+      <figcaption>Prosody quirks, phonetic glitches and imperfect room-impulse simulation keep synthetic
+        speech <b>locally unreliable</b>. Token-level SFT must explain every such region against the
+        reference — and that is exactly where it breaks.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ METHOD ================================ -->
+<section id="method">
+  <div class="wrap">
+    <p class="kick reveal">Method</p>
+    <h2 class="reveal">SFT imitates tokens — GRPO rewards transcripts</h2>
+    <p class="lead reveal d1">
+      We keep the backbone deliberately simple and frozen — a <b>WavLM-Large</b> encoder feeding
+      <b>Llama-3.2-1B-Instruct</b> through a small trainable projector (SLAM-ASR recipe), with LoRA adapters
+      (r=16, α=32) — so that any difference comes from the <b>adaptation objective</b>, not the architecture.
+    </p>
+
+    <div class="pipe reveal d2">
+      <svg viewBox="0 0 980 170" xmlns="http://www.w3.org/2000/svg" aria-label="architecture">
+        <path id="arch-wave" d="M20,85 q10,-26 20,0 q10,26 20,0 q10,-18 20,0 q10,18 20,0" fill="none" stroke="#141413" stroke-width="2.5"/>
+        <line x1="112" y1="85" x2="150" y2="85" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <rect class="blk" x="158" y="38" width="190" height="94" rx="12" stroke="#4A7BA6"/>
+        <text x="253" y="76" fill="#141413" font-size="15" font-weight="700" text-anchor="middle">WavLM-Large</text>
+        <text x="253" y="97" fill="#4A7BA6" font-size="11.5" text-anchor="middle">❄ frozen encoder</text>
+        <line x1="356" y1="85" x2="394" y2="85" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <rect class="blk" x="402" y="38" width="190" height="94" rx="12" stroke="#C15F3C"/>
+        <text x="497" y="70" fill="#141413" font-size="15" font-weight="700" text-anchor="middle">Projector</text>
+        <text x="497" y="90" fill="#6B6B64" font-size="11" text-anchor="middle">2× Linear + ReLU · 5× down</text>
+        <text x="497" y="108" fill="#C15F3C" font-size="11.5" font-weight="700" text-anchor="middle">🔥 trained</text>
+        <line x1="600" y1="85" x2="638" y2="85" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <rect class="blk" x="646" y="38" width="210" height="94" rx="12" stroke="#4A7BA6"/>
+        <text x="751" y="70" fill="#141413" font-size="15" font-weight="700" text-anchor="middle">Llama-3.2-1B</text>
+        <text x="751" y="90" fill="#4A7BA6" font-size="11" text-anchor="middle">❄ frozen LLM</text>
+        <text x="751" y="108" fill="#C15F3C" font-size="11.5" font-weight="700" text-anchor="middle">+ LoRA r=16 🔥</text>
+        <line x1="864" y1="85" x2="898" y2="85" stroke="#6B6B64" stroke-width="2" marker-end="url(#arrowm)"/>
+        <text x="906" y="80" fill="#3E7D5C" font-size="12.5" font-weight="600">“block my</text>
+        <text x="906" y="98" fill="#3E7D5C" font-size="12.5" font-weight="600">card”</text>
+      </svg>
+    </div>
+
+    <div class="grid2">
+      <div class="card sft reveal">
+        <h3>Supervised fine-tuning</h3>
+        <div class="formula">$$\mathcal{L}_{\mathrm{SFT}}(\theta)=-\,\mathbb{E}_{(x,y^\star)}\Big[\sum_{t=1}^{T}\log \pi_\theta\big(y_t^\star \mid x,\,y_{&lt;t}^\star\big)\Big]$$</div>
+        <p>Teacher-forced, token-level cross-entropy: the model must reproduce the reference
+          <em>token by token</em>, even where the synthetic audio doesn't support it.</p>
+        <div class="chain">
+          <span class="step">TTS artifact</span><span class="arr">→</span>
+          <span class="step">exact token demanded</span><span class="arr">→</span>
+          <span class="step">LM prior takes over</span><span class="arr">→</span>
+          <span class="step">insertion chain</span>
+        </div>
+        <span class="tagline bad">absorbs local synthetic defects → confident hallucinations</span>
+      </div>
+      <div class="card grpo reveal d1">
+        <h3>GRPO — critic-free sequence-level RL</h3>
+        <div class="formula">$$A_i=\frac{r_i-\operatorname{mean}(\{r_1,\dots,r_G\})}{\operatorname{std}(\{r_1,\dots,r_G\})+\varepsilon},\qquad r_i = 1-\mathrm{WER}(o_i,y^\star)$$</div>
+        <div class="formula">$$\mathcal{J}(\theta)=\mathbb{E}\Big[\tfrac{1}{G}\sum_{i=1}^{G}\tfrac{1}{|o_i|}\sum_{t}\min\big(\rho_{i,t}A_i,\;\operatorname{clip}(\rho_{i,t},1{-}\epsilon,1{+}\epsilon)A_i\big)\Big]-\beta\,\mathrm{KL}\big[\pi_\theta\,\|\,\pi_{\mathrm{ref}}\big]$$</div>
+        <p>Whole transcripts are scored against the metric that matters; hypotheses better than their own
+          group get reinforced, worse ones suppressed. A KL leash to the SFT checkpoint (β = 0.04) keeps
+          decoding stable. G = 4 rollouts, τ = 0.8 — <b>no value network</b>.</p>
+        <span class="tagline good">local artifacts can't dominate a sequence-level reward</span>
+      </div>
+    </div>
+
+    <!-- playground -->
+    <figure class="fig reveal" id="playground">
+      <div class="fig-head">
+        <h3>Interactive — one GRPO step</h3>
+        <span class="sub">rewards → group-relative advantages</span>
+      </div>
+      <p class="ref">reference y* : <code>i'd like to block my card</code></p>
+      <div id="gp-cards"></div>
+      <div id="gp-note"></div>
+      <div class="gp-bar">
+        <button class="btn" id="gp-sample" type="button">↻ Sample a new group (G = 4)</button>
+        <span class="sub" style="color:var(--muted);font-size:13px">rewards use r = 1 − WER against the reference</span>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ RESULTS ================================ -->
+<section id="results">
+  <div class="wrap">
+    <p class="kick reveal">Results · DefinedAI banking (6.55 h test)</p>
+    <h2 class="reveal">Same data, different objective: −45% WER</h2>
+    <p class="lead reveal d1">All models start from an SFT checkpoint trained on LibriSpeech-960.
+      Hover the bars for the insertion / deletion / substitution breakdown.</p>
+
+    <figure class="fig reveal" id="fig-main">
+      <div class="fig-head">
+        <h3>RQ1 — Does GRPO beat SFT?</h3>
+        <span class="sub">Table I · WER % ↓</span>
+      </div>
+      <div class="chart" id="chart-main"></div>
+      <figcaption><b>On real speech</b> GRPO pays off stacked after SFT (10.27 → 9.49). <b>On synthetic
+        speech</b> the effect is dramatic: GRPO alone cuts WER from 36.71 to 22.09 (−40% rel.), and
+        SFT→GRPO reaches 20.21 (−45% rel.) — recovering most of the synthetic-to-real gap exactly where
+        privacy makes it matter.</figcaption>
+    </figure>
+
+    <div class="grid2">
+      <figure class="fig reveal" id="fig-real">
+        <div class="fig-head">
+          <h3>RQ2 — How much real data is worth collecting?</h3>
+          <span class="sub">Table II · + fixed 54 h synthetic</span>
+        </div>
+        <div class="chart" id="chart-real"></div>
+        <figcaption>WER falls steeply over the first hours of real speech, then flattens:
+          <b>≈⅔ of the reduction comes from the first 5–10 h</b>. Annotate little, gain much.</figcaption>
+      </figure>
+      <figure class="fig reveal d1" id="fig-synth">
+        <div class="fig-head">
+          <h3>RQ3 — Do we need all the synthetic speech?</h3>
+          <span class="sub">Table III · + fixed 1 h real</span>
+        </div>
+        <div class="chart" id="chart-synth"></div>
+        <figcaption><b>Non-monotonic:</b> 25 h is the sweet spot (16.77); the full 54 h drowns the 1 h real
+          anchor (20.32). With 5 h real at 25 h synthetic: <b>14.56</b>.</figcaption>
+      </figure>
+    </div>
+
+    <div class="grid2">
+      <figure class="fig reveal" id="fig-reward">
+        <div class="fig-head">
+          <h3>RQ4 — Which reward?</h3>
+          <div class="toggle" id="reward-toggle">
+            <button class="on" data-m="wer" type="button">report WER</button>
+            <button data-m="cer" type="button">report CER</button>
+          </div>
+        </div>
+        <div class="chart" id="chart-reward"></div>
+        <figcaption id="cap-reward">Plain <b>1 − WER is the best WER reward</b> (16.77) — length or CER
+          add-ons mostly add insertions. Optimize exactly the metric you report.</figcaption>
+      </figure>
+      <figure class="fig reveal d1" id="fig-select">
+        <div class="fig-head">
+          <h3>RQ5 — Does selecting synthetic utterances help?</h3>
+          <div class="toggle" id="select-toggle">
+            <button data-b="1" type="button">1 h</button>
+            <button data-b="5" type="button">5 h</button>
+            <button class="on" data-b="25" type="button">25 h</button>
+          </div>
+        </div>
+        <div class="chart" id="chart-select"></div>
+        <figcaption id="cap-select">At useful budgets <b>random sampling wins</b> (22.11) — no diversity- or
+          rollout-based selector consistently beats it.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ ANALYSIS ================================ -->
+<section id="analysis">
+  <div class="wrap">
+    <p class="kick reveal">Why does GRPO win?</p>
+    <h2 class="reveal">Behavioral, not representational</h2>
+    <p class="lead reveal d1">Four traces of the same mechanism: GRPO doesn't relearn the audio — it learns
+      <b>when not to continue</b>.</p>
+
+    <figure class="fig reveal" id="fig-scatter">
+      <div class="fig-head">
+        <h3>① The hallucination tail disappears</h3>
+        <span class="sub">Fig. 1 · insertions vs. reference length (stylized)</span>
+      </div>
+      <div class="chart" id="chart-scatter"></div>
+      <figcaption>Under SFT, even <b>short utterances</b> can trigger tens-to-hundreds of inserted tokens —
+        local defects growing into runaway continuations. GRPO keeps insertions low at every length.</figcaption>
+    </figure>
+
+    <div class="grid2">
+      <figure class="fig reveal" id="fig-stop">
+        <div class="fig-head">
+          <h3>② GRPO learns when to stop</h3>
+          <span class="sub">Fig. 2 · token probability around T<sub>last</sub></span>
+        </div>
+        <div class="chart" id="chart-stop"></div>
+        <figcaption>SFT stays confident <b>after the transcript should end</b>; GRPO's confidence collapses
+          at the boundary. ECE on short utterances: <b>0.430 → 0.198</b>.</figcaption>
+      </figure>
+      <figure class="fig reveal d1" id="fig-ece">
+        <div class="fig-head">
+          <h3>Calibration by utterance length</h3>
+          <span class="sub">Table VI · Expected Calibration Error ↓</span>
+        </div>
+        <div class="chart" id="chart-ece"></div>
+        <figcaption>GRPO lowers ECE in <b>every length bin</b>, most where insertion bursts hurt most —
+          short utterances.</figcaption>
+      </figure>
+    </div>
+
+    <figure class="fig reveal" id="fig-attn">
+      <div class="fig-head">
+        <h3>③ Attention stays anchored to the audio</h3>
+        <button class="replaybtn" id="attn-replay" type="button">▶ replay decoding</button>
+      </div>
+      <div class="chart" id="chart-attn"></div>
+      <figcaption>Decoder cross-attention (rows = emitted tokens, columns = audio frames — stylized after
+        Fig. 3). SFT's attention is diffuse and leaks across words, and its inserted tokens
+        (<span style="color:var(--red)">[INS]</span>) attend to nothing in particular. GRPO keeps a sharp,
+        monotonic alignment — and stops. Attention entropy stays lower under GRPO throughout decoding (Fig. 4).</figcaption>
+    </figure>
+
+    <figure class="fig reveal" id="fig-cka">
+      <div class="fig-head">
+        <h3>④ …while barely touching the representations</h3>
+        <span class="sub">Fig. 5 · layer-wise CKA similarity (stylized)</span>
+      </div>
+      <div class="chart" id="chart-cka"></div>
+      <figcaption>SFT rewrites early–middle layers (the region tied to the synthetic/real gap);
+        <b>GRPO stays close to the base model</b>, and SFT→GRPO barely moves from SFT: the gain is a
+        <b>policy correction</b>, not new representations.</figcaption>
+    </figure>
+
+    <div class="verdict reveal">
+      <div class="big">GRPO = a lightweight behavioral correction</div>
+      <div class="sm">same representations · better stopping calibration · tokens only where audio evidence is stable</div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ TAKEAWAYS ================================ -->
+<section id="takeaways">
+  <div class="wrap">
+    <p class="kick reveal">Takeaways</p>
+    <h2 class="reveal">What to do when synthetic speech is all you have</h2>
+    <div class="takes">
+      <div class="take reveal"><div class="check">✓</div>
+        <h3>Prefer RL over SFT</h3>
+        <p>On synthetic speech, GRPO cuts WER <b>36.71 → 22.09</b>; SFT→GRPO reaches <b>20.21</b>
+          (−45% rel.). On real speech it still adds a small gain (10.27 → <b>9.49</b>).</p></div>
+      <div class="take reveal d1"><div class="check">✓</div>
+        <h3>Keep the reward simple</h3>
+        <p><b>r = 1 − WER</b> beats every combination with CER or length terms. Optimize what you
+          evaluate; extras mostly add insertions.</p></div>
+      <div class="take reveal d2"><div class="check">✓</div>
+        <h3>Don't over-engineer the data</h3>
+        <p><b>Random sampling</b> of ~25 h synthetic wins once the pool is moderate; embedding- and
+          rollout-based selectors don't consistently beat it.</p></div>
+      <div class="take reveal d3"><div class="check">✓</div>
+        <h3>Spend the real budget wisely</h3>
+        <p><b>5–10 h of real speech</b> capture most of the achievable gain (down to 14.56 with 5 h) —
+          after that, returns diminish fast.</p></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ================================ BIBTEX ================================ -->
+<section id="bibtex">
+  <div class="wrap">
+    <p class="kick reveal">Cite</p>
+    <h2 class="reveal">BibTeX</h2>
+    <pre class="reveal d1" id="bibpre">@article{kumar2026synthetic,
+  title   = {When Synthetic Speech Is All You Have: Better Call GRPO},
+  author  = {Kumar, Shashi and Labrak, Yanis and Watawana, Hasindri and
+             Burdisso, Sergio and Villatoro-Tello, Esa{\'u} and
+             Hacio{\u{g}}lu, Kadri and Motlicek, Petr and Stolcke, Andreas},
+  journal = {arXiv preprint arXiv:2607.08409},
+  year    = {2026}
+}</pre>
+    <button class="btn reveal d2" id="copybib" type="button">⧉ Copy BibTeX</button>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Supported by the Idiap Research Institute & Uniphore collaboration project, and by the EU Horizon
+      2020 project ELOQUENCE (grant 101070558).</span>
+    <span>Site hand-built with <a href="https://d3js.org" target="_blank" rel="noopener">D3.js</a>,
+      <a href="https://threejs.org" target="_blank" rel="noopener">Three.js</a> and KaTeX — animations mirror
+      the paper's figures; stylized panels are marked as such.</span>
+    <span class="end">When synthetic speech is all you have… ☎ Better Call GRPO.</span>
+  </div>
+</footer>
+
+<script>
+/* ============================ core: palette, helpers ============================ */
+(function () {
+'use strict';
+window.BCG = {};                       // shared namespace
+const C = {
+  bg:'#FAF9F5', bg2:'#FFFFFF', panel:'#FFFFFF', fg:'#141413', muted:'#6B6B64',
+  rule:'#E4E1D7', gold:'#C15F3C', blue:'#4A7BA6', red:'#B3392F', green:'#3E7D5C',
+  purple:'#7E6BA8', gray:'#A9A599'
+};
+BCG.C = C;
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+BCG.$ = $; BCG.$$ = $$;
+
+/* seeded rng (mulberry32) for reproducible "stylized" data */
+BCG.rng = function (seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+};
+
+const HAS_IO = 'IntersectionObserver' in window;
+
+/* reveal-on-scroll */
+function setupReveals() {
+  const els = $$('.reveal');
+  if (!HAS_IO) { els.forEach(e => e.classList.add('visible')); return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) { en.target.classList.add('visible'); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.12 });
+  els.forEach(e => io.observe(e));
+}
+
+/* run fn once when el scrolls into view (or immediately without IO) */
+BCG.onEnter = function (el, fn, threshold) {
+  if (!el) return;
+  if (!HAS_IO) { try { fn(); } catch (e) { console.error(e); } return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        io.unobserve(en.target);
+        try { fn(); } catch (e) { console.error(e); }
+      }
+    });
+  }, { threshold: threshold == null ? 0.25 : threshold });
+  io.observe(el);
+};
+
+/* animated number counter */
+BCG.count = function (el, from, to, dur, fmt) {
+  if (!el) return;
+  const t0 = performance.now();
+  function tick(t) {
+    let p = Math.min(1, (t - t0) / dur);
+    p = 1 - Math.pow(1 - p, 3);                       // easeOutCubic
+    el.textContent = fmt(from + (to - from) * p);
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+};
+
+/* tooltip */
+const tip = $('#tooltip');
+BCG.showTip = function (html, ev) {
+  tip.innerHTML = html;
+  const pad = 14;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8)  x = ev.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1;
+};
+BCG.hideTip = function () { tip.style.opacity = 0; };
+
+/* progress bar + nav show + scrollspy */
+function setupChrome() {
+  const bar = $('#progress'), nav = $('#nav'), hero = $('#hero');
+  addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / (h.scrollHeight - h.clientHeight || 1);
+    bar.style.width = (p * 100).toFixed(2) + '%';
+    nav.classList.toggle('shown', h.scrollTop > (hero ? hero.offsetHeight * 0.55 : 300));
+  }, { passive: true });
+
+  if (HAS_IO) {
+    const links = $$('nav .links a');
+    const map = {};
+    links.forEach(a => { map[a.getAttribute('href').slice(1)] = a; });
+    const spy = new IntersectionObserver((ents) => {
+      ents.forEach(en => {
+        if (en.isIntersecting && map[en.target.id]) {
+          links.forEach(a => a.classList.remove('active'));
+          map[en.target.id].classList.add('active');
+        }
+      });
+    }, { rootMargin: '-35% 0px -55% 0px' });
+    Object.keys(map).forEach(id => { const s = document.getElementById(id); if (s) spy.observe(s); });
+  }
+}
+
+/* KaTeX */
+function setupMath() {
+  const go = () => {
+    if (window.renderMathInElement) {
+      renderMathInElement(document.body, {
+        delimiters: [{ left: '$$', right: '$$', display: true },
+                     { left: '\\(', right: '\\)', display: false }],
+        throwOnError: false
+      });
+    }
+  };
+  if (document.readyState === 'complete') go();
+  else addEventListener('load', go);
+}
+
+/* copy bibtex */
+function setupBib() {
+  const btn = $('#copybib'), pre = $('#bibpre');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const txt = pre.textContent;
+    const done = () => { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = '⧉ Copy BibTeX', 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done).catch(() => fallback());
+    } else fallback();
+    function fallback() {
+      const ta = document.createElement('textarea');
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      ta.remove();
+    }
+  });
+}
+
+/* TL;DR counters */
+function setupCounters() {
+  BCG.onEnter($('#tldr'), () => {
+    BCG.count($('#cnt-rel'),  0, 45,     1600, v => '−' + v.toFixed(0) + '%');
+    BCG.count($('#cnt-wer'), 36.71, 20.21, 1900, v => v.toFixed(2));
+    BCG.count($('#cnt-ins'), 24.79, 8.39, 1900, v => v.toFixed(2));
+    BCG.count($('#cnt-real'), 0, 10,    1600, v => (v / 2).toFixed(0) + '–' + v.toFixed(0) + ' h');
+  }, 0.35);
+}
+
+/* ============================ hero: three.js point wave ============================ */
+function setupHero() {
+  const canvas = $('#wave3d');
+  if (!canvas || !window.THREE) { if (canvas) canvas.style.display = 'none'; return; }
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { canvas.style.display = 'none'; return; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 2, 0.1, 100);
+  camera.position.set(0, 2.1, 7.5);
+  camera.lookAt(0, 0, 0);
+
+  const NX = 150, NZ = 34, W = 22, D = 9;
+  const N = NX * NZ;
+  const pos = new Float32Array(N * 3);
+  const col = new Float32Array(N * 3);
+  const gold = new THREE.Color(C.gold), blue = new THREE.Color(C.blue), dim = new THREE.Color('#DAD5C8');
+  let k = 0;
+  for (let iz = 0; iz < NZ; iz++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const x = (ix / (NX - 1) - 0.5) * W;
+      const z = (iz / (NZ - 1) - 0.5) * D;
+      pos[k * 3] = x; pos[k * 3 + 1] = 0; pos[k * 3 + 2] = z;
+      const t = iz / (NZ - 1);
+      const c = dim.clone().lerp(t < 0.5 ? blue : gold, 0.25 + 0.75 * Math.abs(t - 0.5) * 2 * 0.9);
+      col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      k++;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ size: 0.045, vertexColors: true, transparent: true, opacity: 0.85 });
+  scene.add(new THREE.Points(geo, mat));
+
+  let mx = 0, tx = 0;
+  addEventListener('pointermove', e => { tx = (e.clientX / innerWidth - 0.5) * 0.8; }, { passive: true });
+
+  function resize() {
+    const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  let running = true;
+  if (HAS_IO) new IntersectionObserver(es => es.forEach(en => running = en.isIntersecting),
+    { threshold: 0.02 }).observe(canvas);
+
+  const p = geo.attributes.position.array;
+  function frame(t) {
+    requestAnimationFrame(frame);
+    if (!running) return;
+    const s = t * 0.001;
+    const env = 0.55 + 0.45 * Math.sin(s * 0.6) * Math.sin(s * 0.23 + 1.7);
+    let j = 0;
+    for (let iz = 0; iz < NZ; iz++) {
+      for (let ix = 0; ix < NX; ix++) {
+        const x = p[j * 3], z = p[j * 3 + 2];
+        const g = Math.exp(-x * x / 38);
+        p[j * 3 + 1] =
+          env * g * (0.75 * Math.sin(x * 1.1 - s * 2.1) * Math.cos(z * 0.9 + s * 0.8)
+                   + 0.35 * Math.sin(x * 2.3 + s * 3.3 + z)
+                   + 0.18 * Math.sin(x * 4.7 - s * 5.1));
+        j++;
+      }
+    }
+    geo.attributes.position.needsUpdate = true;
+    mx += (tx - mx) * 0.04;
+    camera.position.x = mx * 2.2;
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ============================ real vs synthetic waveforms ============================ */
+function setupWaves() {
+  const host = $('#chart-waves');
+  if (!host) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 900 170');
+  host.appendChild(svg);
+  function mk(tag, attrs, parent) {
+    const el = document.createElementNS(NS, tag);
+    for (const a in attrs) el.setAttribute(a, attrs[a]);
+    (parent || svg).appendChild(el); return el;
+  }
+  mk('text', { x: 210, y: 22, fill: C.green, 'font-size': 14, 'font-weight': 700, 'text-anchor': 'middle' }).textContent = 'real recording';
+  mk('text', { x: 690, y: 22, fill: C.red, 'font-size': 14, 'font-weight': 700, 'text-anchor': 'middle' }).textContent = 'synthetic (TTS + RIR)';
+  const pr = mk('path', { fill: 'none', stroke: C.green, 'stroke-width': 2.2 });
+  const ps = mk('path', { fill: 'none', stroke: C.red, 'stroke-width': 2.2 });
+  const gap = mk('g', {});
+  mk('line', { x1: 445, y1: 55, x2: 445, y2: 145, stroke: C.gold, 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }, gap);
+  mk('text', { x: 450, y: 165, fill: C.gold, 'font-size': 12.5, 'font-weight': 700, 'text-anchor': 'middle' }, gap)
+    .textContent = '⇠ acoustic mismatch ⇢';
+  const NPT = 130;
+  function path(x0, x1, yc, t, synth) {
+    let d = '';
+    for (let i = 0; i < NPT; i++) {
+      const u = i / (NPT - 1);
+      const x = x0 + u * (x1 - x0);
+      const e = Math.exp(-Math.pow((u - 0.5) / 0.32, 2));
+      let y = 0.62 * Math.sin(u * 21 + t * 2.4) + 0.33 * Math.sin(u * 47 - t * 3.1) + 0.2 * Math.sin(u * 90 + t * 5);
+      if (synth) {
+        y = 0.62 * Math.sin(u * 21 + t * 2.4 + 0.9) + 0.42 * Math.sin(u * 33 - t * 2.2);
+        const gl = Math.sin(u * 6.5 + t * 0.9);
+        if (gl > 0.86) y *= 0.15;                       // dropped phones
+        y += (gl < -0.94 ? 0.9 * Math.sin(u * 260) : 0); // buzzy artifact
+      }
+      y = 100 + 38 * e * y;
+      d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+    }
+    return d;
+  }
+  let running = false, raf = null;
+  function loop(t) {
+    raf = requestAnimationFrame(loop);
+    if (!running) return;
+    const s = t * 0.001;
+    pr.setAttribute('d', path(30, 420, 100, s, false));
+    ps.setAttribute('d', path(480, 870, 100, s, true));
+  }
+  if (HAS_IO) new IntersectionObserver(es => es.forEach(en => running = en.isIntersecting),
+    { threshold: 0.05 }).observe(host);
+  else running = true;
+  requestAnimationFrame(loop);
+}
+
+/* ============================ GRPO playground ============================ */
+function setupPlayground() {
+  const cardsEl = $('#gp-cards'), note = $('#gp-note'), btn = $('#gp-sample');
+  if (!cardsEl) return;
+  const N = 6;
+  const pool = [
+    { t: "i'd like to block my card", e: 0 },
+    { t: "i'd like to block my car", e: 1 },
+    { t: "i like to lock my card", e: 2 },
+    { t: "i'd like to unlock my card", e: 1 },
+    { t: "block my card", e: 3 },
+    { t: "i'd like to to block block my card card", e: 3 },
+    { t: "i'd like to block my card my account number is four two", e: 5, tag: 'hallucinated continuation' },
+    { t: "yes i'd like to block my card please thank you for calling", e: 6, tag: 'hallucinated continuation' }
+  ];
+  let rnd = BCG.rng(20260718);
+  function sample() {
+    for (let tries = 0; tries < 30; tries++) {
+      const idx = pool.map((_, i) => i).sort(() => rnd() - 0.5).slice(0, 4);
+      const g = idx.map(i => pool[i]);
+      const rs = g.map(h => 1 - h.e / N);
+      if (Math.max(...rs) >= 0.83 && Math.min(...rs) <= 0.5) return g;
+    }
+    return [pool[0], pool[1], pool[5], pool[6]];
+  }
+  function render() {
+    const g = sample();
+    const rs = g.map(h => 1 - h.e / N);
+    const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
+    const sd = Math.sqrt(rs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / rs.length) + 1e-4;
+    cardsEl.innerHTML = '';
+    let hadTag = false;
+    g.forEach((h, i) => {
+      const r = rs[i], A = (r - mean) / sd;
+      const card = document.createElement('div');
+      card.className = 'gp-card' + (A > 0.15 ? ' win' : A < -0.15 ? ' lose' : '');
+      const cls = A > 0.15 ? 'up' : A < -0.15 ? 'dn' : 'md';
+      const arrow = A > 0.15 ? '▲' : A < -0.15 ? '▼' : '·';
+      if (h.tag) hadTag = true;
+      card.innerHTML =
+        '<div class="txt">“' + h.t + '”' + (h.tag ? '<span class="tag">⚠ ' + h.tag + '</span>' : '') + '</div>' +
+        '<div class="r" style="color:' + (r >= 0.8 ? C.green : r >= 0.55 ? C.muted : C.red) + '">r = ' + r.toFixed(2) + '</div>' +
+        '<div class="adv ' + cls + '">' + arrow + ' A = ' + (A >= 0 ? '+' : '−') + Math.abs(A).toFixed(2) + '</div>';
+      cardsEl.appendChild(card);
+      setTimeout(() => card.classList.add('in'), 90 + i * 160);
+    });
+    note.innerHTML = 'group mean r̄ = <b>' + mean.toFixed(2) + '</b> · std = <b>' + (sd - 1e-4).toFixed(2) +
+      '</b> — above-mean transcripts are <b style="color:' + C.green + '">reinforced</b>, below-mean ' +
+      '<b style="color:' + C.red + '">suppressed</b>.' +
+      (hadTag ? ' The hallucinated continuation gets the strongly negative advantage — exactly the output SFT would happily imitate.' : '');
+  }
+  btn.addEventListener('click', render);
+  BCG.onEnter($('#playground'), render, 0.3);
+}
+
+/* boot */
+function boot() {
+  setupReveals(); setupChrome(); setupMath(); setupBib(); setupCounters();
+  setupHero(); setupWaves(); setupPlayground();
+  if (BCG.initCharts) BCG.initCharts();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+})();
+</script>
+
+<script>
+/* ============================ D3 charts ============================ */
+(function () {
+'use strict';
+const C = BCG.C;
+
+BCG.initCharts = function () {
+
+  /* staged pipeline animation (no d3 needed) */
+  (function () {
+    const pipe = document.getElementById('pipe-problem');
+    if (!pipe) return;
+    const parts = Array.from(pipe.querySelectorAll('.pp-step, .pp-arr'));
+    parts.forEach(p => { p.style.opacity = 0; p.style.transition = 'opacity .6s ease'; });
+    BCG.onEnter(pipe, () => {
+      parts.sort((a, b) => (+a.dataset.step || 0) - (+b.dataset.step || 0))
+        .forEach((p, i) => setTimeout(() => p.style.opacity = 1, 150 + i * 220));
+    }, 0.3);
+  })();
+
+  if (!window.d3) {
+    document.querySelectorAll('.chart').forEach(c => {
+      if (c.id && c.id !== 'chart-waves') {
+        c.innerHTML = '<div class="cdn-warn">This chart needs the D3.js CDN — open the page with an internet connection.</div>';
+      }
+    });
+    return;
+  }
+
+  const fmt2 = d3.format('.2f');
+
+  function svgIn(id, W, H) {
+    return d3.select('#' + id).append('svg')
+      .attr('viewBox', '0 0 ' + W + ' ' + H).attr('preserveAspectRatio', 'xMidYMid meet');
+  }
+  function styleAxis(g, fs) {
+    g.selectAll('text').attr('fill', C.muted).attr('font-size', fs || 11);
+    g.selectAll('line').attr('stroke', C.rule);
+    g.select('.domain').attr('stroke', C.rule);
+    return g;
+  }
+  function hGrid(g, yScale, x0, x1, ticks) {
+    g.selectAll('gl').data(ticks).enter().append('line')
+      .attr('x1', x0).attr('x2', x1)
+      .attr('y1', d => yScale(d)).attr('y2', d => yScale(d))
+      .attr('stroke', C.rule).attr('stroke-width', 0.7).attr('stroke-dasharray', '2 4');
+  }
+  function drawLine(path, delay, dur) {
+    const L = path.node().getTotalLength();
+    path.attr('stroke-dasharray', L + ' ' + L).attr('stroke-dashoffset', L)
+      .transition().delay(delay).duration(dur).ease(d3.easeCubicInOut)
+      .attr('stroke-dashoffset', 0);
+  }
+  function reg(figId, fn) {
+    const el = document.getElementById(figId);
+    if (el) BCG.onEnter(el, fn, 0.22);
+  }
+
+  /* ---------------- RQ1 main bar chart ---------------- */
+  reg('fig-main', function () {
+    const W = 900, H = 430, m = { t: 46, r: 16, b: 78, l: 56 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-main', W, H);
+    svg.append('defs').append('marker').attr('id', 'arrgold').attr('viewBox', '0 0 10 10')
+      .attr('refX', 8).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto').append('path').attr('d', 'M0,0L10,5L0,10z').attr('fill', C.gold);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+
+    const D = [
+      { n: 'LS-960',    v: 66.44, c: C.purple, gr: 'base',      ins: 42.18, del: 5.68, sub: 18.59 },
+      { n: 'SFT',       v: 10.27, c: C.blue,   gr: 'real',      ins: 2.99,  del: 2.13, sub: 5.14 },
+      { n: 'GRPO',      v: 10.78, c: C.gold,   gr: 'real',      ins: 1.79,  del: 3.50, sub: 5.49 },
+      { n: 'SFT→GRPO',  v: 9.49,  c: C.green,  gr: 'real',      ins: 1.98,  del: 2.50, sub: 5.01 },
+      { n: 'SFT',       v: 36.71, c: C.blue,   gr: 'synthetic', ins: 24.79, del: 2.55, sub: 9.37 },
+      { n: 'GRPO',      v: 22.09, c: C.gold,   gr: 'synthetic', ins: 8.39,  del: 5.15, sub: 8.56 },
+      { n: 'SFT→GRPO',  v: 20.21, c: C.green,  gr: 'synthetic', ins: 8.60,  del: 3.66, sub: 7.95 }
+    ];
+    const u = iw / 8.3, bw = 0.78 * u;
+    const cx = [0.55, 2.05, 3.05, 4.05, 5.6, 6.6, 7.6].map(k => k * u);
+    const y = d3.scaleLinear().domain([0, 70]).range([ih, 0]);
+
+    hGrid(g, y, 0, iw, [10, 20, 30, 40, 50, 60, 70]);
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([0, 10, 20, 30, 40, 50, 60, 70])));
+    svg.append('text').attr('x', 14).attr('y', 26).attr('fill', C.muted).attr('font-size', 12)
+      .text('WER % ↓');
+
+    [(cx[0] + cx[1]) / 2, (cx[3] + cx[4]) / 2].forEach(x =>
+      g.append('line').attr('x1', x).attr('x2', x).attr('y1', 0).attr('y2', ih + 52)
+        .attr('stroke', C.rule).attr('stroke-dasharray', '3 5'));
+
+    const bars = g.selectAll('.bar').data(D).enter().append('rect')
+      .attr('x', (d, i) => cx[i] - bw / 2).attr('width', bw)
+      .attr('y', ih).attr('height', 0).attr('rx', 5).attr('fill', d => d.c).attr('fill-opacity', 0.9)
+      .style('cursor', 'default')
+      .on('mousemove', function (ev, d) {
+        BCG.showTip('<b>' + d.gr + ' · ' + d.n + '</b><br>WER ' + fmt2(d.v) +
+          '<br>INS ' + d.ins + ' · DEL ' + d.del + ' · SUB ' + d.sub, ev);
+        d3.select(this).attr('fill-opacity', 1);
+      })
+      .on('mouseleave', function () { BCG.hideTip(); d3.select(this).attr('fill-opacity', 0.9); });
+    bars.transition().delay((d, i) => 130 * i).duration(850).ease(d3.easeCubicOut)
+      .attr('y', d => y(d.v)).attr('height', d => ih - y(d.v));
+
+    g.selectAll('.vl').data(D).enter().append('text')
+      .attr('x', (d, i) => cx[i]).attr('y', d => y(d.v) - 9).attr('text-anchor', 'middle')
+      .attr('fill', C.fg).attr('font-size', 13).attr('font-weight', 700)
+      .text(d => fmt2(d.v)).attr('opacity', 0)
+      .transition().delay((d, i) => 350 + 130 * i).duration(500).attr('opacity', 1);
+
+    g.selectAll('.nm').data(D).enter().append('text')
+      .attr('x', (d, i) => cx[i]).attr('y', ih + 22).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 11.5).text(d => d.n);
+    const grp = [
+      { t: 'base', x: cx[0], c: C.purple },
+      { t: '+ 54 h REAL banking speech', x: (cx[1] + cx[3]) / 2, c: C.fg },
+      { t: '+ 54 h SYNTHETIC banking speech', x: (cx[4] + cx[6]) / 2, c: C.gold }
+    ];
+    g.selectAll('.gl').data(grp).enter().append('text')
+      .attr('x', d => d.x).attr('y', ih + 46).attr('text-anchor', 'middle')
+      .attr('fill', d => d.c).attr('font-size', 12.5).attr('font-weight', 800).text(d => d.t);
+
+    const ann = g.append('g').attr('opacity', 0);
+    ann.append('path')
+      .attr('d', 'M' + cx[4] + ',' + (y(36.71) - 26) + ' Q' + ((cx[4] + cx[5]) / 2) + ',' +
+        (y(36.71) - 66) + ' ' + (cx[5] - 6) + ',' + (y(22.09) - 26))
+      .attr('fill', 'none').attr('stroke', C.gold).attr('stroke-width', 2).attr('marker-end', 'url(#arrgold)');
+    ann.append('text').attr('x', (cx[4] + cx[5]) / 2).attr('y', y(36.71) - 74)
+      .attr('text-anchor', 'middle').attr('fill', C.gold).attr('font-size', 13).attr('font-weight', 800)
+      .text('−40% rel.');
+    const pill = ann.append('g').attr('transform', 'translate(' + (iw - 268) + ',6)');
+    pill.append('rect').attr('width', 268).attr('height', 32).attr('rx', 16)
+      .attr('fill', C.bg2).attr('stroke', C.green).attr('stroke-width', 1.5);
+    pill.append('text').attr('x', 134).attr('y', 21).attr('text-anchor', 'middle')
+      .attr('fill', C.green).attr('font-size', 12.5).attr('font-weight', 800)
+      .text('SFT→GRPO −45% rel. (36.71 → 20.21)');
+    ann.transition().delay(1500).duration(700).attr('opacity', 1);
+  });
+
+  /* ---------------- RQ2 real hours ---------------- */
+  reg('fig-real', function () {
+    const W = 520, H = 340, m = { t: 30, r: 18, b: 54, l: 46 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-real', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const pts = [[0, 22.09], [1, 20.32], [5, 15.51], [10, 14.03], [25, 13.03], [54, 12.61]];
+    const x = d3.scaleLinear().domain([0, 56]).range([0, iw]);
+    const y = d3.scaleLinear().domain([10, 23]).range([ih, 0]);
+    hGrid(g, y, 0, iw, [12, 14, 16, 18, 20, 22]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickValues([0, 10, 20, 30, 40, 50])));
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([10, 12, 14, 16, 18, 20, 22])));
+    g.append('text').attr('x', iw / 2).attr('y', ih + 40).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 11.5).text('real speech (h) — mixed with 54 h synthetic');
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11).text('WER % ↓');
+
+    g.append('rect').attr('x', x(0)).attr('y', 0).attr('width', x(10) - x(0)).attr('height', ih)
+      .attr('fill', C.green).attr('opacity', 0)
+      .transition().delay(900).duration(600).attr('opacity', 0.09);
+    g.append('text').attr('x', x(11)).attr('y', 16).attr('fill', C.green).attr('font-size', 11)
+      .attr('font-weight', 700).attr('opacity', 0)
+      .text('≈⅔ of the gain in the first 5–10 h')
+      .transition().delay(1100).duration(600).attr('opacity', 1);
+
+    const line = d3.line().x(d => x(d[0])).y(d => y(d[1])).curve(d3.curveMonotoneX);
+    drawLine(g.append('path').attr('d', line(pts)).attr('fill', 'none')
+      .attr('stroke', C.gold).attr('stroke-width', 3), 120, 1200);
+    g.selectAll('.dt').data(pts).enter().append('circle')
+      .attr('cx', d => x(d[0])).attr('cy', d => y(d[1])).attr('r', 0).attr('fill', C.gold)
+      .on('mousemove', (ev, d) => BCG.showTip('<b>' + d[0] + ' h real</b> + 54 h synth<br>WER ' + fmt2(d[1]), ev))
+      .on('mouseleave', BCG.hideTip)
+      .transition().delay((d, i) => 200 + i * 200).duration(300).attr('r', 4.5);
+    [[0, 22.09, -10], [10, 14.03, -10], [54, 12.61, -10]].forEach(p =>
+      g.append('text').attr('x', x(p[0])).attr('y', y(p[1]) + p[2]).attr('text-anchor', 'middle')
+        .attr('fill', C.fg).attr('font-size', 11).attr('font-weight', 700).text(fmt2(p[1]))
+        .attr('opacity', 0).transition().delay(1300).duration(500).attr('opacity', 1));
+  });
+
+  /* ---------------- RQ3 synthetic hours ---------------- */
+  reg('fig-synth', function () {
+    const W = 520, H = 340, m = { t: 30, r: 18, b: 54, l: 46 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-synth', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const pts = [[1, 24.60], [5, 24.20], [10, 19.91], [25, 16.77], [54, 20.32]];
+    const x = d3.scaleLinear().domain([0, 56]).range([0, iw]);
+    const y = d3.scaleLinear().domain([13, 26]).range([ih, 0]);
+    hGrid(g, y, 0, iw, [14, 16, 18, 20, 22, 24, 26]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickValues([0, 10, 20, 30, 40, 50])));
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([14, 16, 18, 20, 22, 24, 26])));
+    g.append('text').attr('x', iw / 2).attr('y', ih + 40).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 11.5).text('synthetic speech (h) — mixed with 1 h real');
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11).text('WER % ↓');
+
+    const line = d3.line().x(d => x(d[0])).y(d => y(d[1])).curve(d3.curveMonotoneX);
+    drawLine(g.append('path').attr('d', line(pts)).attr('fill', 'none')
+      .attr('stroke', C.blue).attr('stroke-width', 3), 120, 1200);
+    g.selectAll('.dt').data(pts).enter().append('circle')
+      .attr('cx', d => x(d[0])).attr('cy', d => y(d[1])).attr('r', 0).attr('fill', C.blue)
+      .on('mousemove', (ev, d) => BCG.showTip('<b>' + d[0] + ' h synthetic</b> + 1 h real<br>WER ' + fmt2(d[1]), ev))
+      .on('mouseleave', BCG.hideTip)
+      .transition().delay((d, i) => 200 + i * 200).duration(300).attr('r', 4.5);
+
+    const star = g.append('g').attr('opacity', 0);
+    star.append('text').attr('x', x(25)).attr('y', y(16.77) + 30).attr('text-anchor', 'middle')
+      .attr('fill', C.gold).attr('font-size', 20).text('★');
+    star.append('text').attr('x', x(25)).attr('y', y(16.77) + 48).attr('text-anchor', 'middle')
+      .attr('fill', C.gold).attr('font-size', 11.5).attr('font-weight', 800).text('sweet spot: 25 h · 16.77');
+    star.transition().delay(1300).duration(500).attr('opacity', 1);
+
+    const bad = g.append('g').attr('opacity', 0);
+    bad.append('text').attr('x', iw - 4).attr('y', 14).attr('text-anchor', 'end')
+      .attr('fill', C.red).attr('font-size', 11.5).attr('font-weight', 700)
+      .text('54 h drowns the 1 h real anchor');
+    bad.append('line').attr('x1', iw - 60).attr('y1', 20).attr('x2', x(54)).attr('y2', y(20.32) - 8)
+      .attr('stroke', C.red).attr('stroke-width', 1.5).attr('stroke-dasharray', '3 3');
+    bad.transition().delay(1550).duration(500).attr('opacity', 1);
+  });
+
+  /* ---------------- RQ4 rewards toggle ---------------- */
+  reg('fig-reward', function () {
+    const W = 520, H = 340, m = { t: 34, r: 14, b: 60, l: 46 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-reward', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const cats = ['WER', 'WER+LEN', 'CER', 'CER+LEN', 'WER+CER', 'all 3'];
+    const wer = [16.77, 17.42, 18.46, 16.81, 18.27, 17.32];
+    const cer = [11.63, 12.47, 11.97, 11.02, 12.63, 11.68];
+    const x = d3.scaleBand().domain(cats).range([0, iw]).padding(0.32);
+    const y = d3.scaleLinear().range([ih, 0]);
+    const yAxis = g.append('g');
+    const gridG = g.append('g');
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickSize(0)), 10);
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11)
+      .attr('id', 'rw-ylab').text('WER % ↓');
+
+    const bars = g.selectAll('.b').data(cats).enter().append('rect')
+      .attr('x', d => x(d)).attr('width', x.bandwidth()).attr('y', ih).attr('height', 0).attr('rx', 4)
+      .on('mousemove', (ev, d) => {
+        const i = cats.indexOf(d);
+        BCG.showTip('<b>reward: ' + d + '</b><br>WER ' + fmt2(wer[i]) + ' · CER ' + fmt2(cer[i]), ev);
+      }).on('mouseleave', BCG.hideTip);
+    const labs = g.selectAll('.l').data(cats).enter().append('text')
+      .attr('x', d => x(d) + x.bandwidth() / 2).attr('text-anchor', 'middle')
+      .attr('fill', C.fg).attr('font-size', 11).attr('font-weight', 700);
+    const star = g.append('text').attr('text-anchor', 'middle').attr('fill', C.gold)
+      .attr('font-size', 16).text('★').attr('opacity', 0);
+
+    const capW = 'Plain <b>1 − WER is the best WER reward</b> (16.77) — length or CER add-ons mostly add insertions. Optimize exactly the metric you report.';
+    const capC = '<b>CER + LEN gives the best CER</b> (11.02) at a competitive WER (16.81) — the pick when character-level accuracy is the target.';
+
+    function update(metric, first) {
+      const v = metric === 'wer' ? wer : cer;
+      const best = metric === 'wer' ? 0 : 3;
+      y.domain([0, metric === 'wer' ? 20 : 14]);
+      const t = d3.transition().duration(first ? 900 : 750).ease(d3.easeCubicOut);
+      styleAxis(yAxis.transition(t).call(d3.axisLeft(y).ticks(5)).selection());
+      gridG.selectAll('*').remove();
+      hGrid(gridG, y, 0, iw, y.ticks(5).filter(d => d > 0));
+      bars.transition(t).delay((d, i) => (first ? i * 90 : 0))
+        .attr('y', (d, i) => y(v[i])).attr('height', (d, i) => ih - y(v[i]))
+        .attr('fill', (d, i) => i === best ? C.gold : C.gray)
+        .attr('fill-opacity', (d, i) => i === best ? 0.95 : 0.75);
+      labs.transition(t).delay((d, i) => (first ? i * 90 : 0))
+        .attr('y', (d, i) => y(v[i]) - 8).text((d, i) => fmt2(v[i]));
+      star.transition(t).attr('x', x(cats[best]) + x.bandwidth() / 2)
+        .attr('y', y(v[best]) - 26).attr('opacity', 1);
+      document.getElementById('rw-ylab').textContent = (metric === 'wer' ? 'WER' : 'CER') + ' % ↓';
+      document.getElementById('cap-reward').innerHTML = metric === 'wer' ? capW : capC;
+    }
+    update('wer', true);
+    document.querySelectorAll('#reward-toggle button').forEach(b =>
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#reward-toggle button').forEach(x => x.classList.remove('on'));
+        b.classList.add('on'); update(b.dataset.m, false);
+      }));
+  });
+
+  /* ---------------- RQ5 selection toggle ---------------- */
+  reg('fig-select', function () {
+    const W = 520, H = 340, m = { t: 34, r: 14, b: 60, l: 46 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-select', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const cats = ['Random', 'Speaker', 'WavLM', 'BGE', 'GRPO-recov', 'GRPO-signal'];
+    const data = {
+      1:  [40.21, 40.38, 59.67, 38.65, 43.20, 42.22],
+      5:  [33.82, 30.50, 32.67, 35.60, 33.85, 35.28],
+      25: [22.11, 22.30, 23.87, 25.01, 22.31, 25.45]
+    };
+    const best = { 1: 3, 5: 1, 25: 0 };
+    const ymax = { 1: 64, 5: 40, 25: 28 };
+    const caps = {
+      1: 'Tiny budgets are unstable: <b>BGE best at 1 h</b> (38.65 vs 40.21 random) — and WavLM-diversity is catastrophic (<b style="color:' + C.red + '">59.67</b>), picking atypical utterances.',
+      5: 'At 5 h, <b>speaker diversity leads</b> (30.50 vs 33.82 random) — but the best criterion keeps shifting with the budget.',
+      25: 'At useful budgets <b>random sampling wins</b> (22.11) — no diversity- or rollout-based selector consistently beats it.'
+    };
+    const x = d3.scaleBand().domain(cats).range([0, iw]).padding(0.32);
+    const y = d3.scaleLinear().range([ih, 0]);
+    const yAxis = g.append('g');
+    const gridG = g.append('g');
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickSize(0)), 9.5);
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11).text('WER % ↓');
+
+    let cur = 25;
+    const bars = g.selectAll('.b').data(cats).enter().append('rect')
+      .attr('x', d => x(d)).attr('width', x.bandwidth()).attr('y', ih).attr('height', 0).attr('rx', 4)
+      .on('mousemove', (ev, d) => {
+        const i = cats.indexOf(d);
+        BCG.showTip('<b>' + d + '</b> @ ' + cur + ' h synthetic<br>WER ' + fmt2(data[cur][i]), ev);
+      }).on('mouseleave', BCG.hideTip);
+    const labs = g.selectAll('.l').data(cats).enter().append('text')
+      .attr('x', d => x(d) + x.bandwidth() / 2).attr('text-anchor', 'middle')
+      .attr('fill', C.fg).attr('font-size', 10.5).attr('font-weight', 700);
+
+    function update(b, first) {
+      cur = b;
+      const v = data[b];
+      y.domain([0, ymax[b]]);
+      const t = d3.transition().duration(first ? 900 : 750).ease(d3.easeCubicOut);
+      styleAxis(yAxis.transition(t).call(d3.axisLeft(y).ticks(5)).selection());
+      gridG.selectAll('*').remove();
+      hGrid(gridG, y, 0, iw, y.ticks(5).filter(d => d > 0));
+      bars.transition(t).delay((d, i) => (first ? i * 90 : 0))
+        .attr('y', (d, i) => y(v[i])).attr('height', (d, i) => ih - y(v[i]))
+        .attr('fill', (d, i) => i === best[b] ? C.gold : (b === 1 && i === 2 ? C.red : C.gray))
+        .attr('fill-opacity', (d, i) => i === best[b] ? 0.95 : 0.78);
+      labs.transition(t).attr('y', (d, i) => y(v[i]) - 8).text((d, i) => fmt2(v[i]));
+      document.getElementById('cap-select').innerHTML = caps[b];
+    }
+    update(25, true);
+    document.querySelectorAll('#select-toggle button').forEach(b =>
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#select-toggle button').forEach(x => x.classList.remove('on'));
+        b.classList.add('on'); update(+b.dataset.b, false);
+      }));
+  });
+
+  /* ---------------- insertion scatter ---------------- */
+  reg('fig-scatter', function () {
+    const W = 900, H = 380, m = { t: 30, r: 20, b: 56, l: 64 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-scatter', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const x = d3.scaleLinear().domain([0, 52]).range([0, iw]);
+    const y = d3.scaleLog().domain([0.9, 420]).range([ih, 0]);
+    hGrid(g, y, 0, iw, [1, 10, 100]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickValues([0, 10, 20, 30, 40, 50])));
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([1, 10, 100]).tickFormat(d3.format('~d'))));
+    g.append('text').attr('x', iw / 2).attr('y', ih + 42).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 12).text('reference length (words)');
+    g.append('text').attr('transform', 'rotate(-90)').attr('x', -ih / 2).attr('y', -44)
+      .attr('text-anchor', 'middle').attr('fill', C.muted).attr('font-size', 12)
+      .text('insertions per utterance (log)');
+
+    const r1 = BCG.rng(42), r2 = BCG.rng(1337);
+    const sft = [], grpo = [];
+    for (let i = 0; i < 62; i++) {
+      const L = 2 + 48 * r1();
+      let c;
+      if (r1() < 0.5) {
+        c = Math.exp(Math.log(6) + r1() * (Math.log(280) - Math.log(6))) * (L < 15 ? 1.5 : 0.8);
+      } else c = 1 + 5 * r1();
+      sft.push([L, Math.min(c, 400)]);
+    }
+    for (let i = 0; i < 62; i++) {
+      const L = 2 + 48 * r2();
+      grpo.push([L, r2() < 0.9 ? 1 + 2.6 * r2() : 3 + 5 * r2()]);
+    }
+    function dots(data, color, delay0) {
+      g.selectAll(null).data(data).enter().append('circle')
+        .attr('cx', d => x(d[0])).attr('cy', d => y(d[1])).attr('r', 0)
+        .attr('fill', color).attr('fill-opacity', 0.7)
+        .transition().delay((d, i) => delay0 + i * 13).duration(260).ease(d3.easeBackOut)
+        .attr('r', 3.6);
+    }
+    dots(sft, C.blue, 150);
+    dots(grpo, C.gold, 900);
+    const lg = g.append('g').attr('transform', 'translate(' + (iw - 150) + ',2)');
+    [['SFT', C.blue, 0], ['GRPO', C.gold, 74]].forEach(d => {
+      lg.append('circle').attr('cx', d[2]).attr('cy', 4).attr('r', 5).attr('fill', d[1]);
+      lg.append('text').attr('x', d[2] + 11).attr('y', 8).attr('fill', d[1])
+        .attr('font-size', 12.5).attr('font-weight', 700).text(d[0]);
+    });
+  });
+
+  /* ---------------- stopping calibration ---------------- */
+  reg('fig-stop', function () {
+    const W = 520, H = 340, m = { t: 30, r: 16, b: 54, l: 46 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-stop', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const xs = d3.range(-6, 7);
+    const sftY  = [0.84, 0.85, 0.86, 0.87, 0.87, 0.88, 0.86, 0.82, 0.80, 0.79, 0.79, 0.80, 0.81];
+    const grpoY = [0.83, 0.85, 0.86, 0.87, 0.88, 0.88, 0.84, 0.58, 0.50, 0.46, 0.44, 0.45, 0.44];
+    const x = d3.scaleLinear().domain([-6, 6]).range([0, iw]);
+    const y = d3.scaleLinear().domain([0.3, 1.0]).range([ih, 0]);
+    g.append('rect').attr('x', x(0)).attr('y', 0).attr('width', x(6) - x(0)).attr('height', ih)
+      .attr('fill', '#FFFFFF').attr('opacity', 0.03);
+    hGrid(g, y, 0, iw, [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickValues([-6, -3, 0, 3, 6]).tickFormat(d => d === 0 ? 'T_last' : (d > 0 ? '+' + d : d))));
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([0.4, 0.6, 0.8, 1.0])));
+    g.append('line').attr('x1', x(0)).attr('x2', x(0)).attr('y1', 0).attr('y2', ih)
+      .attr('stroke', C.muted).attr('stroke-dasharray', '4 4');
+    g.append('text').attr('x', iw / 2).attr('y', ih + 40).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 11.5).text('token position around the final reference token');
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11)
+      .text('mean token probability');
+
+    const line = arr => d3.line().x((d, i) => x(xs[i])).y(d => y(d)).curve(d3.curveMonotoneX)(arr);
+    drawLine(g.append('path').attr('d', line(sftY)).attr('fill', 'none')
+      .attr('stroke', C.blue).attr('stroke-width', 3), 150, 1100);
+    drawLine(g.append('path').attr('d', line(grpoY)).attr('fill', 'none')
+      .attr('stroke', C.gold).attr('stroke-width', 3), 800, 1100);
+    const lg = g.append('g').attr('transform', 'translate(10,6)');
+    [['SFT — still confident', C.blue, 0], ['GRPO — stops', C.gold, 16]].forEach(d => {
+      lg.append('line').attr('x1', 0).attr('x2', 20).attr('y1', d[2]).attr('y2', d[2])
+        .attr('stroke', d[1]).attr('stroke-width', 3);
+      lg.append('text').attr('x', 26).attr('y', d[2] + 4).attr('fill', d[1])
+        .attr('font-size', 11.5).attr('font-weight', 700).text(d[0]);
+    });
+  });
+
+  /* ---------------- ECE grouped bars ---------------- */
+  reg('fig-ece', function () {
+    const W = 520, H = 340, m = { t: 34, r: 16, b: 56, l: 50 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-ece', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const bins = ['Short (1–8)', 'Medium (9–15)', 'Long (16–22)', 'V. long (≥23)'];
+    const sft  = [0.430, 0.195, 0.135, 0.174];
+    const grpo = [0.198, 0.085, 0.078, 0.080];
+    const x0 = d3.scaleBand().domain(bins).range([0, iw]).padding(0.3);
+    const x1 = d3.scaleBand().domain(['SFT', 'GRPO']).range([0, x0.bandwidth()]).padding(0.14);
+    const y = d3.scaleLinear().domain([0, 0.47]).range([ih, 0]);
+    hGrid(g, y, 0, iw, [0.1, 0.2, 0.3, 0.4]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x0).tickSize(0)), 10);
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([0, 0.1, 0.2, 0.3, 0.4])));
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11).text('ECE ↓');
+
+    bins.forEach((b, i) => {
+      const bg = g.append('g').attr('transform', 'translate(' + x0(b) + ',0)');
+      [['SFT', sft[i], C.blue], ['GRPO', grpo[i], C.gold]].forEach(s => {
+        bg.append('rect').attr('x', x1(s[0])).attr('width', x1.bandwidth())
+          .attr('y', ih).attr('height', 0).attr('rx', 3)
+          .attr('fill', s[2]).attr('fill-opacity', 0.85)
+          .on('mousemove', ev => BCG.showTip('<b>' + s[0] + '</b> · ' + b + '<br>ECE ' + s[1].toFixed(3), ev))
+          .on('mouseleave', BCG.hideTip)
+          .transition().delay(150 + i * 130).duration(700).ease(d3.easeCubicOut)
+          .attr('y', y(s[1])).attr('height', ih - y(s[1]));
+        bg.append('text').attr('x', x1(s[0]) + x1.bandwidth() / 2).attr('y', y(s[1]) - 6)
+          .attr('text-anchor', 'middle').attr('fill', C.fg).attr('font-size', 9.5)
+          .attr('font-weight', 700).text(s[1].toFixed(3)).attr('opacity', 0)
+          .transition().delay(600 + i * 130).duration(400).attr('opacity', 1);
+      });
+    });
+    const lg = g.append('g').attr('transform', 'translate(' + (iw - 120) + ',0)');
+    [['SFT', C.blue, 0], ['GRPO', C.gold, 62]].forEach(d => {
+      lg.append('rect').attr('x', d[2]).attr('y', -4).attr('width', 12).attr('height', 12)
+        .attr('rx', 2).attr('fill', d[1]);
+      lg.append('text').attr('x', d[2] + 17).attr('y', 6).attr('fill', d[1])
+        .attr('font-size', 12).attr('font-weight', 700).text(d[0]);
+    });
+  });
+
+  /* ---------------- attention heatmaps ---------------- */
+  reg('fig-attn', (function () {
+    let built = false, run;
+    return function () {
+      if (built) { run(); return; }
+      built = true;
+      const W = 900, H = 350;
+      const svg = svgIn('chart-attn', W, H);
+      const ROWS = 8, COLS = 16, CELL = 24;
+      const gw = COLS * CELL;
+      const conf = [
+        { x0: 34,  color: C.blue, title: 'SFT', diffuse: true,  ins: 3, seed: 7 },
+        { x0: 478, color: C.gold, title: 'GRPO', diffuse: false, ins: 0, seed: 11 }
+      ];
+      const cellSel = [];
+      conf.forEach(cf => {
+        const r = BCG.rng(cf.seed);
+        const gg = svg.append('g').attr('transform', 'translate(' + cf.x0 + ',64)');
+        svg.append('text').attr('x', cf.x0 + gw / 2).attr('y', 40).attr('text-anchor', 'middle')
+          .attr('fill', cf.color).attr('font-size', 15).attr('font-weight', 800).text(cf.title);
+        const cells = [];
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            let v;
+            if (i >= ROWS - cf.ins) {
+              v = 0.18 + 0.2 * r();
+            } else {
+              const span = cf.ins ? ROWS - cf.ins - 1 : ROWS - 1;
+              const d = Math.abs(j - i * (COLS - 1) / span);
+              v = Math.exp(-0.5 * Math.pow(d / (cf.diffuse ? 2.1 : 0.55), 2));
+              v = 0.9 * v + (cf.diffuse ? 0.3 : 0.05) * r();
+            }
+            cells.push({ i, j, v: Math.min(v, 1) });
+          }
+        }
+        const sel = gg.selectAll('rect').data(cells).enter().append('rect')
+          .attr('x', d => d.j * CELL).attr('y', d => d.i * CELL)
+          .attr('width', CELL - 1.5).attr('height', CELL - 1.5).attr('rx', 2)
+          .attr('fill', cf.color).attr('fill-opacity', 0);
+        cellSel.push(sel);
+        if (cf.ins) {
+          for (let i = ROWS - cf.ins; i < ROWS; i++) {
+            svg.append('text').attr('x', cf.x0 + gw + 10).attr('y', 64 + i * CELL + 16)
+              .attr('fill', C.red).attr('font-size', 10.5).attr('font-weight', 800).text('[INS]');
+          }
+        }
+      });
+      svg.append('text').attr('x', W / 2).attr('y', H - 12).attr('text-anchor', 'middle')
+        .attr('fill', C.muted).attr('font-size', 12)
+        .text('rows = emitted tokens · columns = audio frames — decoding sweeps left to right');
+      const cursors = conf.map(cf => svg.append('rect')
+        .attr('x', cf.x0).attr('y', 62).attr('width', CELL - 1.5).attr('height', ROWS * CELL + 2)
+        .attr('fill', 'none').attr('stroke', C.fg).attr('stroke-opacity', 0).attr('rx', 3));
+      run = function () {
+        cellSel.forEach(sel => sel.interrupt().attr('fill-opacity', 0)
+          .transition().delay(d => 200 + d.j * 85 + d.i * 6).duration(320)
+          .attr('fill-opacity', d => d.v));
+        cursors.forEach((cur, k) => {
+          cur.interrupt().attr('x', conf[k].x0).attr('stroke-opacity', 0.6)
+            .transition().duration(COLS * 85 + 300).ease(d3.easeLinear)
+            .attr('x', conf[k].x0 + (COLS - 1) * CELL)
+            .transition().duration(350).attr('stroke-opacity', 0);
+        });
+      };
+      run();
+      const btn = document.getElementById('attn-replay');
+      if (btn) btn.addEventListener('click', run);
+    };
+  })());
+
+  /* ---------------- CKA lines ---------------- */
+  reg('fig-cka', function () {
+    const W = 900, H = 340, m = { t: 30, r: 220, b: 50, l: 56 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = svgIn('chart-cka', W, H);
+    const g = svg.append('g').attr('transform', 'translate(' + m.l + ',' + m.t + ')');
+    const L = [0, 2, 4, 6, 8, 10, 12, 14, 16];
+    const series = [
+      { n: 'BASE ↔ SFT',       c: C.blue,  v: [1, 0.93, 0.85, 0.78, 0.755, 0.77, 0.81, 0.85, 0.88] },
+      { n: 'BASE ↔ GRPO',      c: C.gold,  v: [1, 0.99, 0.985, 0.98, 0.975, 0.97, 0.965, 0.96, 0.97] },
+      { n: 'SFT ↔ SFT→GRPO',   c: C.green, v: [1, 0.995, 0.99, 0.988, 0.985, 0.988, 0.99, 0.987, 0.99] }
+    ];
+    const x = d3.scaleLinear().domain([0, 16]).range([0, iw]);
+    const y = d3.scaleLinear().domain([0.7, 1.01]).range([ih, 0]);
+    hGrid(g, y, 0, iw, [0.7, 0.8, 0.9, 1.0]);
+    styleAxis(g.append('g').attr('transform', 'translate(0,' + ih + ')')
+      .call(d3.axisBottom(x).tickValues(L)));
+    styleAxis(g.append('g').call(d3.axisLeft(y).tickValues([0.7, 0.8, 0.9, 1.0]).tickFormat(d3.format('.1f'))));
+    g.append('text').attr('x', iw / 2).attr('y', ih + 38).attr('text-anchor', 'middle')
+      .attr('fill', C.muted).attr('font-size', 12).text('LLM layer index');
+    svg.append('text').attr('x', 10).attr('y', 18).attr('fill', C.muted).attr('font-size', 11)
+      .text('CKA similarity ↑');
+    const line = v => d3.line().x((d, i) => x(L[i])).y(d => y(d)).curve(d3.curveMonotoneX)(v);
+    const lg = svg.append('g').attr('transform', 'translate(' + (m.l + iw + 26) + ',' + (m.t + 20) + ')');
+    series.forEach((s, k) => {
+      drawLine(g.append('path').attr('d', line(s.v)).attr('fill', 'none')
+        .attr('stroke', s.c).attr('stroke-width', 3), 200 + k * 450, 1100);
+      const row = lg.append('g').attr('transform', 'translate(0,' + k * 26 + ')').attr('opacity', 0);
+      row.append('line').attr('x1', 0).attr('x2', 26).attr('y1', 0).attr('y2', 0)
+        .attr('stroke', s.c).attr('stroke-width', 3.5);
+      row.append('text').attr('x', 34).attr('y', 4).attr('fill', C.fg).attr('font-size', 12.5)
+        .attr('font-weight', 600).text(s.n);
+      row.transition().delay(400 + k * 450).duration(500).attr('opacity', 1);
+    });
+    g.append('text').attr('x', x(7)).attr('y', y(0.755) + 24).attr('text-anchor', 'middle')
+      .attr('fill', C.red).attr('font-size', 11.5).attr('opacity', 0)
+      .text('SFT rewrites early–middle layers')
+      .transition().delay(1400).duration(500).attr('opacity', 0.9);
+  });
+
+};
+})();
+</script>
+
+</body>
+</html>
